@@ -43,9 +43,13 @@ remaining intermittent hang is a documented AP-bring-up timing race
 ```bash
 sudo apt install build-essential qemu-system-x86 grub-pc-bin xorriso mtools
 make                 # build kernel.elf and lantest.iso
-make test            # boot self-test on a fresh disk (serial markers)
+make run             # QEMU window (needs WSLg on WSL2)
+make run-nographic   # serial on the terminal (Ctrl-A X to quit)
+make test            # boot self-test on a fresh disk (~60 serial markers)
 make test-persist    # two boots on one disk: LFS boot_count 1 -> 2
 make test-exception  # deliberate kernel exception path
+make debug / make gdb  # QEMU gdbstub on :1234, hardware breakpoint at kernel_main
+make clean
 ```
 
 Requires QEMU >= 7 (`-cpu max -smp 4 -m 512M`) and a multiboot2 bootloader.
@@ -114,8 +118,9 @@ cd ~/lantest
 make                    # 编译内核并打包成 lantest.iso
 make run                # QEMU 图形窗口运行（WSL2 需要 WSLg）
 make run-nographic      # 无图形环境：串口输出到终端（Ctrl-A 再 X 退出）
-make test               # 无头自动测试：tick 中断 + 物理页分配器自检
-make test-exception     # 故意触发 #PF，验证异常处理器与 panic
+make test               # 无头启动自检：约 60 个串口 marker（VFS/进程/SMP/用户程序）
+make test-persist       # 双启动持久化：LFS boot_count 1 → 2
+make test-exception     # 故意触发内核 #PF，验证异常处理器与 panic
 ```
 
 调试：
@@ -132,8 +137,9 @@ make clean
 ```
 
 > 也可以直接用 VirtualBox / VMware 以 BIOS 方式打开 `lantest.iso`。
-> **VirtualBox 7.2.16 已实测**：512 MB / BIOS / 不配置串口即可正常启动并持续输出 tick；
-> 内核通过 16550 scratch 寄存器探测不到 UART 时会自动只使用 VGA 输出，不会卡死。
+> **VirtualBox 7.2.16 已实测**：512 MB / BIOS / 不配置串口也能正常启动并持续输出。
+> （含义：内核启动时会探测 16550 UART——写入 scratch 寄存器再读回验证——
+> 探测不到就自动降级为纯 VGA 文本输出，因此没有串口的虚拟机同样可用，不会卡死。）
 
 ---
 
@@ -394,14 +400,3 @@ lantest/
 本项目使用 **Apache License 2.0**（见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)）。
 提交补丁即视为同意按 Apache-2.0 授权；贡献者名单见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。
 
-## 快速开始
-
-```bash
-sudo apt install build-essential qemu-system-x86 grub-pc-bin xorriso mtools
-make            # 生成 kernel.elf 与 lantest.iso
-make test       # 全新磁盘启动自检（串口 marker 判定）
-make test-persist   # 双启动持久化（LFS boot_count 1→2）
-make test-exception # 内核异常路径
-```
-
-运行环境：x86_64、Multiboot2/GRUB2、QEMU ≥ 7（`-cpu max -smp 4 -m 512M`）。
