@@ -2,10 +2,9 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-x86__64%20%2B%20QEMU-informational.svg)](#quick-start)
+[![Status](https://img.shields.io/badge/status-M4--47b%20(7/10%20fresh%20green)-yellow.svg)](#status)
 
-**Release v0.0.38b** · [Changelog](CHANGELOG.md)
-
-**English** | [简体中文](#兰特斯特操作系统lantest-os)
+**[English](#lantest-os)** | [简体中文](#兰特斯特操作系统lantest-os)
 
 An **independent x86_64 SMP kernel written from scratch**. The design is
 inspired by Linux (monolithic kernel, VFS, process model, syscalls, scheduler),
@@ -13,59 +12,133 @@ but the project:
 
 - contains **no Linux source code**;
 - was **not developed on top of Linux**;
-- does **not implement the Linux ABI** — syscall numbers, object layouts and
-  the build system are original to this project.
+- does **not implement the Linux ABI** — syscall numbers, register conventions,
+  error codes, kernel object layouts and the build system are original.
+
+![Current boot under QEMU (virtio logs on the serial port)](docs/m5a-qemu.png)
 
 ## Status
 
-**First public release: v0.0.38b** — see [CHANGELOG.md](CHANGELOG.md).
+Current milestone: **M4-47b** — first public snapshot **v0.0.38b**. The formal
+**v0.1.0** release will ship after the AP bring-up race (M4-47c) is fixed and
+the fresh-disk boot test reaches 10/10.
 
-Current milestone: **M4-47b** (x2APIC ICR drain + atomic wait/wakeup window),
-validated under QEMU with `-smp 4`.
+Measured on QEMU 10.2.1 (`-cpu max -smp 4 -m 512M`), fresh 16 MiB disk:
 
-| Area | State |
+| Check | Result |
 | --- | --- |
-| Boot | Multiboot2 / GRUB2 → 32-bit → long mode, per-task PML4 |
-| Memory | physical allocator, slab/kmalloc, demand paging, COW, user space |
-| SMP | ACPI MADT, x2APIC, SIPI trampoline, per-CPU run queues, AP timers |
-| VFS / FS | VFS core, ramfs, LFS over virtio-blk (journal, boot counter) |
-| Processes | fork/exec/wait, signals, process groups, pipes, shared memory |
-| Kernel interfaces | custom syscalls (open/read/write/mmap/fork/exec/pipes/…) |
-| Userland | libc, malloc, stdio, shell, tests, Lua 5.4 port |
-| Hardening | spinlock ordering, TLB shootdown, deferred reap, IPI delivery |
+| Build (`-Wall -Wextra`) | 0 warnings |
+| `make test` × 10 | **7/10 green** — every green run: stress workers 3/3, apuser tasks on CPU1–3, shell pipelines, Lua, LFS persistence |
+| `make test-persist` | PASS (boot_count 1 → 2 across reboots) |
+| `make test-exception` | PASS |
 
-Measured stability (fresh disk, `make test`): **7–8 / 10 runs green**; the
-remaining intermittent hang is a documented AP-bring-up timing race
-(tracked as M4-47c). Details live in [`docs/`](docs/).
+Honest caveat: ~3/10 fresh-disk boots stall in a **localized AP bring-up timing
+race** (fixed `ap_delay` handshake in `start_one_ap`; deterministic repro under
+`qemu -d int`). Root cause and fix are documented in `docs/M4-*.md`.
 
 ## Quick start
 
+Recommended location: the native Linux filesystem (e.g. `~/lantest` on WSL2).
+Do **not** build under `/mnt/c` — cross-system I/O makes `make` several times
+slower once the object count grows, and has wedged WSL before.
+
+Dependencies (Debian/Ubuntu):
+
 ```bash
-sudo apt install build-essential qemu-system-x86 grub-pc-bin xorriso mtools
-make                 # build kernel.elf and lantest.iso
-make run             # QEMU window (needs WSLg on WSL2)
-make run-nographic   # serial on the terminal (Ctrl-A X to quit)
-make test            # boot self-test on a fresh disk (~60 serial markers)
-make test-persist    # two boots on one disk: LFS boot_count 1 -> 2
-make test-exception  # deliberate kernel exception path
-make debug / make gdb  # QEMU gdbstub on :1234, hardware breakpoint at kernel_main
+sudo apt install -y build-essential grub-pc-bin grub-common xorriso mtools qemu-system-x86 gdb
+```
+
+Build and run:
+
+```bash
+make                    # compile the kernel and pack lantest.iso
+make run                # QEMU with a graphics window (WSL2 needs WSLg)
+make run-nographic      # no display: serial on the terminal (Ctrl-A X to quit)
+make test               # headless boot self-test (~60 serial markers)
+make test-persist       # two boots, one disk: LFS boot_count 1 -> 2
+make test-exception     # deliberate kernel #PF: exception handler + panic
+```
+
+Debugging:
+
+```bash
+make debug              # terminal 1: QEMU paused, gdbstub on :1234
+make gdb                # terminal 2: GDB, hbreak at kernel_main, continue
 make clean
 ```
 
-Requires QEMU >= 7 (`-cpu max -smp 4 -m 512M`) and a multiboot2 bootloader.
+`lantest.iso` also boots in VirtualBox / VMware (BIOS mode, 512 MB). **VirtualBox
+7.2.16 is verified**: it boots fine **without any serial port configured** — the
+kernel probes the 16550 UART (writes the scratch register and reads it back) and
+automatically falls back to VGA-only output, so it never blocks on a missing
+UART.
+
+## Repository layout
+
+```
+lantest/
+├── boot.S          # Multiboot2 header, 32→64-bit trampoline, early GDT/stack
+├── kernel.c        # kernel_main: ordered init (GDT/TSS, IDT, PIC/PIT, PMM…)
+├── linker.ld       # 1 MiB load address, segment layout
+├── grub.cfg        # GRUB2 Multiboot2 config
+├── Makefile        # build / ISO / QEMU run / debug / test suites
+├── include/        # kernel headers (types/io/kprintf/… + x86_64/)
+├── libk/           # kprintf, panic (no libc, no libgcc)
+├── arch/x86_64/    # gdt, idt, irq, isr_asm.S, switch.S, paging, smp, lapic, tlb…
+├── mm/             # pmm, kmalloc, elf loader, uaccess (copyin/out + fixup)
+├── sched/          # scheduler: per-CPU queues, COW, VMA, deferred reap
+├── fs/  syscall/   # VFS, ramfs, LantestFS, fd table; int 0x80 syscall table
+├── drivers/        # uart, vga, console, pci, virtio_blk, keyboard (IRQ1)
+├── user/           # libc, shell, ~20 test programs, Lua 5.4.7 port
+├── docs/           # design.md + ~60 milestone reports + screenshots (Chinese)
+└── .github/        # CI + Release workflows, issue/PR templates
+```
+
+## Documentation
+
+`docs/design.md` is the master design document. Milestone reports (currently in
+Chinese) live in `docs/M4-*.md`, `docs/M3*.md`, `docs/M5-*.md`:
+
+- **Boot & core**: [M1](docs/M1-boot.md) · [M2](docs/M2-core.md)
+- **Heap & scheduler**: [M3a](docs/M3-heap-sched.md) · [M3b-1 paging](docs/M3b-paging.md) · [M3b-2 Ring3/syscall](docs/M3b-ring3-syscall.md) · [M3c-1 lifecycle](docs/M3c-lifecycle.md) · [M3c-2 ELF](docs/M3c-elf.md) · [M3c-3 uaccess/SMAP](docs/M3c-uaccess.md)
+- **Files, shell, IPC**: [M4-1 fd/console](docs/M4-fd-console.md) · [M4-2 VFS/ramfs](docs/M4-vfs-ramfs.md) · [M4-3 shell](docs/M4-shell.md) · [M4-4 fork/exec/unlink](docs/M4-fork-exec-unlink.md) · [M4-5 argv/envp](docs/M4-argv-envp.md) · [M4-6 keyboard](docs/M4-external-shell-keyboard.md) · [M4-7 line editor](docs/M4-shell-line-editor.md) · [M4-8 pipes](docs/M4-pipes.md) · [M4-9 external commands](docs/M4-external-commands.md) · [M4-10 SIGPIPE](docs/M4-signals-sigpipe.md) · [M4-11 multi-stage pipes](docs/M4-multistage-pipes.md) · [M4-12 pgid/Ctrl-C](docs/M4-pgid-ctrl-c.md) · [M4-13 job control](docs/M4-job-control.md)
+- **Memory & paging**: [M4-14 COW/VMA](docs/M4-cow-vma.md) · [M4-15 demand paging](docs/M4-demand-paging.md) · [M4-16 SIGSEGV](docs/M4-sigsegv.md) · [M4-17 file-backed ELF](docs/M4-filebacked-elf-lazy.md) · [M4-18 page cache](docs/M4-page-cache.md) · [M4-19 munmap/mprotect](docs/M4-munmap-mprotect.md) · [M4-21 shared pages](docs/M4-shared-pagecache.md)
+- **Storage**: [M5-1 virtio-blk](docs/M5-block.md) · [M5-2 LantestFS](docs/M5-lantestfs.md) · [M5-3b journaling](docs/M5-3b-journal.md)
+- **Userland runtime**: [M4-20 malloc](docs/M4-malloc.md) · [M4-22 libc](docs/M4-libc.md) · [M4-23 FILE streams](docs/M4-stdio-file.md) · [M4-24 lseek/buffering](docs/M4-lseek-buffered-stdio.md) · [M4-25 write buffer](docs/M4-file-writebuffer.md) · [M4-26 Lua prereqs](docs/M4-lua-prereq.md) · [M4-27 SSE/FPU](docs/M4-sse-fpu.md) · [M4-28 Lua port](docs/M4-lua-port.md) · [M4-29 Lua stdlib](docs/M4-lua-stdlibs.md) · [M4-30 io/math REPL](docs/M4-fpu-io-repl.md) · [M4-31 multiline math](docs/M4-math-repl-multiline.md)
+- **SMP & concurrency**: [M4-32 foundation](docs/M4-smp-foundation.md) · [M4-33 AP wakeup](docs/M4-ap-wakeup.md) · [M4-34 per-CPU/locks](docs/M4-percpu-locks.md) · [M4-35 lifecycle lock](docs/M4-task-lifecycle-lock.md) · [M4-37 TSS/IDT](docs/M4-percpu-tss-ap-idt.md) · [M4-38 AP timer](docs/M4-ap-timer-iret.md) · [M4-39 swapgs](docs/M4-swapgs.md) · [M4-40 AP smoke](docs/M4-ap-user-smoke.md) · [M4-41 AP scheduler](docs/M4-ap-scheduler.md) · [M4-42 multi-AP users](docs/M4-multi-ap-users.md) · [M4-43 active_cpus](docs/M4-active-cpus.md) · [M4-44 IPI wake](docs/M4-ipi-wake.md) · [M4-45 TLB/locks](docs/M4-final-concurrency.md) · [M4-46 hardening](docs/M4-concurrency-hardening.md) · [M4-47a ABBA](docs/M4-pcache-abba.md) · [M4-47b IPI/wait](docs/M4-47b.md)
+
+## Boundary statement
+
+1. **Code independence.** All kernel code is written by this project, guided by
+   published OS theory and the x86/ACPI specs. No Linux source, headers or
+   internal APIs.
+2. **Custom ABI.** Syscall numbers, register conventions, error codes and
+   object layouts are original. A Linux compatibility layer, if ever built,
+   would be an optional userland module.
+3. **Single-core first, SMP later** (done): boot and paging started
+   single-core; SMP landed across M4-32…M4-47b and is verified on 4 vCPUs in
+   QEMU.
+
+## Milestones
+
+| Group | Content | Status |
+| --- | --- | --- |
+| M1 | GRUB/Multiboot2 → 64-bit C kernel; UART + VGA + kprintf; QEMU/GDB | ✅ |
+| M2 | GDT/TSS, 256-gate IDT, exceptions/IRQs, PIC/PIT 100 Hz, physical bitmap allocator | ✅ |
+| M3 | kmalloc, tasks, `switch_to`, RR scheduling, per-task PML4, Ring 3 + `int 0x80`, fork/exec/wait, ELF64, copyin/copyout + SMAP | ✅ |
+| M4 (files) | fd table, VFS, ramfs, shell + line editor, fork/exec/unlink, pipes + dup2, job control, multi-stage pipelines | ✅ |
+| M4 (memory) | COW fork, VMA, demand paging, SIGSEGV, file-backed lazy ELF, page cache, munmap/mprotect, shared mmap + msync, userland malloc/libc/stdio | ✅ |
+| M4 (runtime) | SSE/FPU context, Lua 5.4.7 port with io/os/math + REPL | ✅ |
+| M4 (SMP) | MADT + x2APIC, SIPI trampoline, per-CPU current/GS/TSS/IDT, AP timers, per-CPU queues, 3-AP concurrent users, TLB shootdown, IPI wake (ICR pending fix), ABBA + lost-wakeup fixes, deferred reap | ✅ |
+| M5 | PCI + virtio-blk, LantestFS with journaling, persistence across reboots | ✅ |
+| v0.0.38b | First public snapshot (squashed history, Apache-2.0, CI/Release workflows) | ✅ |
+| M4-47c | AP bring-up race: param-ack/stage handshake with bounded waits | ⏳ |
 
 ## Repository
 
 - GitHub: <https://github.com/LantestOS/LantestOS-kernel>
 - Clone: `git clone https://github.com/LantestOS/LantestOS-kernel.git`
-- Please keep `make test` green before sending patches.
-
-## Documentation
-
-- [Design overview](docs/design.md) (currently written in Chinese)
-- Milestone reports: `docs/M4-*.md` (Chinese)
-- [M4-47b: IPI delivery and wait/wakeup](docs/M4-47b.md)
-- [M4-47a: pcache/vfs ABBA deadlock](docs/M4-pcache-abba.md)
+- Keep `make test` green on a **fresh** disk image before sending patches.
 
 ## Contact & contributing
 
@@ -308,7 +381,7 @@ lantest/
 
 1. **代码独立**：内核代码全部自行编写，参考公开 OS 原理与体系结构规范，不复制 Linux 源码、不使用 Linux 头文件或内核 API。
 2. **ABI 自定义**：系统调用号、寄存器约定、错误码、内核对象布局自行定义；若未来做 Linux 兼容层，只作为可选用户态模块。
-3. **先单核单 CPU**：从单核、简单分页开始，SMP 与复杂驱动留到后续里程碑。
+3. **先单核后 SMP（已完成）**：启动与分页从单核起步；SMP 已在 M4-32…M4-47b 落地，QEMU 4 vCPU 验证。
 
 ---
 
