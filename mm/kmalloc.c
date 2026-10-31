@@ -186,10 +186,17 @@ void kfree(void *ptr)
         panic("kfree: unaligned pointer");
 
     b = (struct block *)((u8 *)ptr - BLOCK_HDR);
-    if (b->magic != BLOCK_MAGIC)
+    if (b->magic != BLOCK_MAGIC) {
+        kprintf("[kfree] bad magic=%p size=%u free=%u ptr=%p caller=%p\n",
+                (void *)(u64)b->magic, b->size, b->free, ptr,
+                (void *)__builtin_return_address(0));
         panic("kfree: bad block magic");
-    if (b->free)
+    }
+    if (b->free) {
+        kprintf("[kfree] DOUBLE FREE size=%u ptr=%p caller=%p\n",
+                b->size, ptr, (void *)__builtin_return_address(0));
         panic("kfree: double free");
+    }
 
     r = region_of(b);
     if (r == NULL)

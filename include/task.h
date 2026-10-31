@@ -47,6 +47,7 @@ struct task {
     volatile u32 active_cpus;/* APs currently running this task */
     struct file *fd_table[MAX_FDS];   /* per-task file descriptors */
     struct task *rq_next;    /* per-CPU ready queue link */
+    struct task *defer_next; /* deferred reap list link (never rq_next!) */
     u32 cpu;                 /* target CPU */
     u32 on_rq;
     struct task *next;

@@ -392,6 +392,11 @@ void task_reap(struct task *t, const char *reason)
         c = c->next;
     } while (c != task_head);
 
+    /* Drop the task from its CPU's ready queue FIRST: while it stays
+     * linked there, an AP can dequeue it and we would free a block that
+     * is still referenced by the queue. */
+    percpu_remove_task(t->cpu, t);
+
     prev = task_head;
     while (prev->next != t && prev->next != task_head)
         prev = prev->next;
@@ -412,9 +417,9 @@ void task_reap(struct task *t, const char *reason)
     if (__atomic_load_n(&t->active_cpus, __ATOMIC_SEQ_CST) != 0) {
         u64 flags;
 
-        t->rq_next = NULL;
+        t->defer_next = NULL;
         spin_lock_irqsave(&deferred_lock, &flags);
-        t->rq_next = deferred_head;
+        t->defer_next = deferred_head;
         deferred_head = t;
         spin_unlock_irqrestore(&deferred_lock, flags);
         kprintf("[reap] pid=%lu deferred (active_cpus=%u)\n",
@@ -434,15 +439,15 @@ void task_reap_deferred(void)
     struct task *t = deferred_head;
     deferred_head = NULL;
     while (t != NULL) {
-        struct task *next = t->rq_next;
+        struct task *next = t->defer_next;
 
-        t->rq_next = NULL;
+        t->defer_next = NULL;
         if (__atomic_load_n(&t->active_cpus, __ATOMIC_SEQ_CST) == 0) {
-            t->rq_next = done;
+            t->defer_next = done;
             done = t;
         } else {
             /* push back */
-            t->rq_next = deferred_head;
+            t->defer_next = deferred_head;
             deferred_head = t;
         }
         t = next;
@@ -450,7 +455,8 @@ void task_reap_deferred(void)
     spin_unlock_irqrestore(&deferred_lock, flags);
 
     while (done != NULL) {
-        struct task *next = done->rq_next;
+        struct task *next = done->defer_next;
+        done->defer_next = NULL;
         task_finish_reap(done);
         done = next;
     }
@@ -509,6 +515,14 @@ static void ap_schedule(void)
         return;
 
     next = percpu_dequeue_task(cpu);
+
+    /* A ZOMBIE can still sit in the queue: its slice expired (it was
+     * re-enqueued RUNNING->READY) and it exited before being picked
+     * again. Never schedule the dead. */
+    while (next != NULL &&
+           (next->state == TASK_ZOMBIE || next->state == TASK_DEAD))
+        next = percpu_dequeue_task(cpu);
+
     if (next == NULL) {
         if (prev->state == TASK_RUNNING && prev != pc->idle_task)
             return;

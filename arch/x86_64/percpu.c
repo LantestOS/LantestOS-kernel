@@ -121,6 +121,33 @@ struct task *percpu_dequeue_task(u32 cpu)
     return t;
 }
 
+void percpu_remove_task(u32 cpu, struct task *t)
+{
+    struct per_cpu *pc;
+    u64 flags;
+
+    if (cpu >= PERCPU_MAX || t == NULL || !t->on_rq)
+        return;
+    pc = &cpus[cpu];
+    spin_lock_irqsave(&pc->rq_lock, &flags);
+    if (pc->ready_head == t) {
+        pc->ready_head = t->rq_next;
+        t->rq_next = NULL;
+        t->on_rq = 0;
+    } else {
+        struct task *p = pc->ready_head;
+
+        while (p != NULL && p->rq_next != t)
+            p = p->rq_next;
+        if (p != NULL) {
+            p->rq_next = t->rq_next;
+            t->rq_next = NULL;
+            t->on_rq = 0;
+        }
+    }
+    spin_unlock_irqrestore(&pc->rq_lock, flags);
+}
+
 int percpu_cpu_online(u32 cpu)
 {
     if (cpu >= PERCPU_MAX)

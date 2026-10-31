@@ -26,3 +26,4 @@ struct per_cpu *percpu_self(void);
 void percpu_set_idle(u32 cpu, struct task *t);
 void percpu_enqueue_task(u32 cpu, struct task *t);
 struct task *percpu_dequeue_task(u32 cpu);
+void percpu_remove_task(u32 cpu, struct task *t);
