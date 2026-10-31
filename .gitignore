@@ -1,0 +1,42 @@
+# Build outputs
+*.o
+*.elf
+*.iso
+iso/
+serial.log
+kernel.map
+
+# Generated user flat binaries (embedded at build time)
+user/*.bin
+user/*.elf
+
+# Editor / OS noise
+.vscode/
+.idea/
+Thumbs.db
+disk.img
+persist*.log
+
+serial*.log
+
+# QEMU / debug artifacts
+qemu*.log
+*.qlog
+/tmp/
+core
+core.*
+*.dSYM/
+
+# Never commit credentials / private keys
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*credentials*
+*.kdbx
+secrets/
+.netrc

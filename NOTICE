@@ -1,0 +1,7 @@
+Lantest OS (兰特斯特操作系统)
+Copyright 2026 The Lantest OS Contributors
+
+This product is licensed under the Apache License, Version 2.0
+(see the LICENSE file). It contains no Linux source code and does not
+implement the Linux ABI; the system-call numbers, object layouts and
+build system are original to this project.

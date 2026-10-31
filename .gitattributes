@@ -1,0 +1,8 @@
+# Keep LF line endings on every platform: the project is built inside
+# Linux/WSL2, and CRLF in Makefile / boot.S would break the build.
+* text=auto eol=lf
+
+# Binary assets (never convert)
+*.png binary
+*.iso binary
+*.elf binary
