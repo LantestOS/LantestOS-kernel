@@ -10,6 +10,7 @@
  */
 #include <types.h>
 #include <io.h>
+#include <spinlock.h>
 #include <uart.h>
 
 #define COM1          0x3F8
@@ -19,6 +20,7 @@
 #define UART_SCR      7
 
 static int uart_present;
+static spinlock_t uart_lock = SPINLOCK_INIT;
 
 int uart_init(void)
 {
@@ -43,16 +45,44 @@ int uart_init(void)
 
 void uart_putc(char c)
 {
+    u64 flags;
+
     if (!uart_present)
         return;
 
-    /* Poll THR-empty, but never spin forever on broken hardware. */
-    for (u32 spin = 0; spin < 1000000u; ++spin) {
-        if (inb(COM1 + UART_LSR) & UART_LSR_THRE) {
-            outb(COM1, (u8)c);
-            return;
-        }
+    spin_lock_irqsave(&uart_lock, &flags);
+    /* Wait unboundedly for THR empty, cross-CPU serialized. The old
+     * bounded "best effort" wait silently DROPPED characters while the
+     * UART was busy and raced other CPUs into the THR; both corrupted
+     * serial-log lines during stress markers (lost "stress: worker PASS"
+     * made passing runs look failed). QEMU clears THRE within
+     * microseconds; a dead UART now hangs loudly instead of eating
+     * output. */
+    while ((inb(COM1 + UART_LSR) & UART_LSR_THRE) == 0)
+        cpu_relax();
+    outb(COM1, (u8)c);
+    spin_unlock_irqrestore(&uart_lock, flags);
+}
+
+void uart_puts(const char *s, u64 len)
+{
+    u64 flags;
+    u64 i;
+
+    if (!uart_present)
+        return;
+
+    /* One lock hold per buffer: a console write (usually one printf
+     * line) is atomic on the wire, so two CPUs can never interleave a
+     * line mid-way. The spinlock is not recursive: emit inline instead
+     * of calling uart_putc() here. */
+    spin_lock_irqsave(&uart_lock, &flags);
+    for (i = 0; i < len; ++i) {
+        while ((inb(COM1 + UART_LSR) & UART_LSR_THRE) == 0)
+            cpu_relax();
+        outb(COM1, (u8)s[i]);
     }
+    spin_unlock_irqrestore(&uart_lock, flags);
 }
 
 int uart_poll_getc(char *out)

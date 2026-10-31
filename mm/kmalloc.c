@@ -21,6 +21,91 @@
 #include <kmalloc.h>
 #include <spinlock.h>
 
+/* ---- M4-47c heap forensics -------------------------------------------
+ * Chain walks in this file are bounded by region ends, so a silent freeze
+ * during allocation would NOT come from them. These guards prove or disprove
+ * that: if they never fire but the box still freezes, the loop is elsewhere
+ * and we move to lock-owner tracking. The op ring names the last callers. */
+#define HEAP_SCAN_GUARD 100000u
+
+static inline void heap_outb(u16 port, u8 v)
+{
+    __asm__ volatile ("outb %0, %1" : : "a"(v), "Nd"(port));
+}
+
+static inline u8 heap_inb(u16 port)
+{
+    u8 v;
+
+    __asm__ volatile ("inb %1, %0" : "=a"(v) : "Nd"(port));
+    return v;
+}
+
+static void heap_raw(const char *str)
+{
+    while (*str != '\0') {
+        for (int i = 0; i < 1000000 && (heap_inb(0x3FD) & 0x20) == 0; ++i)
+            __asm__ volatile ("pause");
+        heap_outb(0x3F8, (u8)*str++);
+    }
+}
+
+static void heap_raw_hex(u64 v)
+{
+    static const char hx[] = "0123456789abcdef";
+    char b[19];
+    int i = 18;
+
+    b[18] = '\0';
+    do {
+        b[--i] = hx[v & 0xFu];
+        v >>= 4;
+    } while (v != 0 && i > 0);
+    b[--i] = 'x';
+    b[--i] = '0';
+    heap_raw(&b[i]);
+}
+
+struct heap_op {
+    u64 rip;
+    char op;      /* A=kmalloc F=kfree */
+};
+
+static volatile struct heap_op heap_ring[64];
+static volatile u32 heap_ring_idx;
+
+static void heap_note(char op, u64 caller)
+{
+    u32 idx = __atomic_fetch_add((u32 *)&heap_ring_idx, 1, __ATOMIC_SEQ_CST) & 63u;
+
+    heap_ring[idx].op = op;
+    /* caller is captured inside kmalloc/kfree with __builtin_return_address(0),
+     * which there names THEIR caller (the allocator user) — the level-1 walk
+     * from a helper would be unsafe without frame pointers. */
+    heap_ring[idx].rip = caller;
+}
+
+static void heap_dump_ring(void)
+{
+    u32 base = __atomic_load_n((u32 *)&heap_ring_idx, __ATOMIC_SEQ_CST);
+
+    heap_raw("[heap] last ops (oldest->newest):\n");
+    for (u32 k = 1; k <= 16; ++k) {
+        u32 idx = (base - k) & 63u;
+        struct heap_op e;
+
+        e.op = heap_ring[idx].op;
+        e.rip = heap_ring[idx].rip;
+        if (e.op != '\0') {
+            heap_raw("  ");
+            heap_outb(0x3F8, (u8)e.op);
+            heap_raw(" caller=");
+            heap_raw_hex(e.rip);
+            heap_raw("\n");
+        }
+    }
+}
+
 #define BLOCK_MAGIC   0x4B424C4Bu   /* "KBLK" */
 #define BLOCK_HDR     16u           /* sizeof(struct block) */
 #define MIN_SPLIT     (BLOCK_HDR + 16u)
@@ -93,6 +178,8 @@ void kmalloc_init(void)
 
 static struct block *find_free_block(u64 need)
 {
+    u32 guard = 0;
+
     for (u32 ri = 0; ri < region_count; ++ri) {
         u8 *p = (u8 *)regions[ri].base;
         u8 *end = region_end(ri);
@@ -100,6 +187,15 @@ static struct block *find_free_block(u64 need)
         while (p + BLOCK_HDR <= end) {
             struct block *b = (struct block *)p;
 
+            if (++guard > HEAP_SCAN_GUARD) {
+                heap_raw("[heap] SCAN GUARD tripped at cur=");
+                heap_raw_hex((u64)(usize)b);
+                heap_raw(" size=");
+                heap_raw_hex(b->size);
+                heap_raw("\n");
+                heap_dump_ring();
+                panic("kmalloc: scan guard");
+            }
             if (b->magic != BLOCK_MAGIC)
                 panic("kmalloc: corrupt block header");
             if (b->size < BLOCK_HDR || p + b->size > end)
@@ -125,6 +221,7 @@ void *kmalloc(usize size)
 
     need = ALIGN16((u64)size) + BLOCK_HDR;
 
+    heap_note('A', (u64)(usize)__builtin_return_address(0));
     spin_lock_irqsave(&heap_lock, &flags);
     b = find_free_block(need);
     if (b == NULL) {
@@ -180,6 +277,7 @@ void kfree(void *ptr)
     if (ptr == NULL)
         return;
 
+    heap_note('F', (u64)(usize)__builtin_return_address(0));
     spin_lock_irqsave(&heap_lock, &flags);
 
     if (((usize)ptr & 15u) != 0)

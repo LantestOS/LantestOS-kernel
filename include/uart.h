@@ -12,6 +12,7 @@
 int uart_init(void);
 
 void uart_putc(char c);
+void uart_puts(const char *s, u64 len);
 
 /* Polling input: returns 1 and stores a byte if one is available. */
 int uart_poll_getc(char *out);

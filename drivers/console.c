@@ -49,8 +49,10 @@ static i64 console_write(struct file *file, const void *buf, u64 count)
     const char *p = (const char *)buf;
     (void)file;
 
-    for (u64 i = 0; i < count; ++i)
-        kputc(p[i]);
+    /* Whole buffer under one uart lock hold: no cross-CPU mid-line
+     * interleaving on the console, and the kernel log keeps its own
+     * kprintf_lock line atomicity. */
+    uart_puts(p, count);
 
     return (i64)count;
 }
