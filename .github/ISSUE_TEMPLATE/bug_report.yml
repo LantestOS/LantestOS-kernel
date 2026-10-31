@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a crash, hang or failed self-test
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please fill in as much as you can. OSDev bugs without numbers are
+        just anecdotes.
+  - type: input
+    id: qemu
+    attributes:
+      label: QEMU version
+      description: output of `qemu-system-x86_64 --version`
+      placeholder: "QEMU emulator version 10.2.1"
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: e.g. Linux x86_64 (KVM), WSL2, macOS (TCG)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: symptom, and which marker is missing (`make test` prints FAIL with the serial log)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: exact commands, whether disk.img was fresh, and pass rate over N runs (e.g. 7/10)
+      placeholder: |
+        rm -f disk.img && truncate -s 16M disk.img
+        make test   # fails in ~3 of 10 runs
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: serial.log tail
+      description: last ~30 lines, in a code block
+      render: text

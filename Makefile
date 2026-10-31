@@ -56,6 +56,11 @@ USER_LDFLAGS := -m elf_x86_64 -s -T user/user.ld -z max-page-size=0x1000 \
 # -cpu max exposes SMAP/SMEP so the M3c-3 hardening is actually exercised.
 DISK_IMG := disk.img
 
+# Wall-clock budget for one QEMU boot during tests.
+# Local KVM runs need ~40 s; CI runners boot under TCG (several times
+# slower), so the workflow overrides this with e.g. QEMU_TIMEOUT=240.
+QEMU_TIMEOUT ?= 40
+
 QEMU_DISK := -drive file=$(DISK_IMG),if=none,id=disk,format=raw \
              -device virtio-blk-pci,drive=disk
 
@@ -161,7 +166,7 @@ gdb: kernel.elf
 #   - fd table, uaccess, ELF, Ring 3 and lifecycle still work
 test: lantest.iso disk.img
 	rm -f serial.log
-	timeout 40s $(QEMU) $(QEMU_HEADLESS) -serial file:serial.log || true
+	timeout $(QEMU_TIMEOUT)s $(QEMU) $(QEMU_HEADLESS) -serial file:serial.log || true
 	@a=$$(grep -c '\[task\] A' serial.log 2>/dev/null || true); \
 	b=$$(grep -c '\[task\] B' serial.log 2>/dev/null || true); \
 	ok=0; \
@@ -241,7 +246,7 @@ test-exception: disk.img
 	$(MAKE) clean
 	$(MAKE) EXTRA_CFLAGS=-DLANTEST_EXCEPTION_TEST lantest.iso
 	rm -f serial.log
-	timeout 25s $(QEMU) $(QEMU_HEADLESS) -serial file:serial.log || true
+	timeout $(QEMU_TIMEOUT)s $(QEMU) $(QEMU_HEADLESS) -serial file:serial.log || true
 	@ok=0; \
 	if grep -q 'CPU EXCEPTION 14' serial.log && \
 	   grep -q 'page fault' serial.log && \
@@ -265,8 +270,8 @@ clean-disk:
 test-persist: lantest.iso
 	rm -f disk.img persist1.log persist2.log
 	truncate -s 16M disk.img
-	timeout 35s $(QEMU) $(QEMU_HEADLESS) -serial file:persist1.log || true
-	timeout 35s $(QEMU) $(QEMU_HEADLESS) -serial file:persist2.log || true
+	timeout $(QEMU_TIMEOUT)s $(QEMU) $(QEMU_HEADLESS) -serial file:persist1.log || true
+	timeout $(QEMU_TIMEOUT)s $(QEMU) $(QEMU_HEADLESS) -serial file:persist2.log || true
 	@if grep -q 'virtio] self-test: PASS (disk boot_count=1)' persist1.log && \
 	   grep -q 'lfs] self-test: PASS (boot_count=1)' persist1.log && \
 	   grep -q 'virtio] self-test: PASS (disk boot_count=2)' persist2.log && \

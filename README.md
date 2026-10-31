@@ -63,9 +63,12 @@ Requires QEMU >= 7 (`-cpu max -smp 4 -m 512M`) and a multiboot2 bootloader.
 - [M4-47b: IPI delivery and wait/wakeup](docs/M4-47b.md)
 - [M4-47a: pcache/vfs ABBA deadlock](docs/M4-pcache-abba.md)
 
-## Contact
+## Contact & contributing
 
 Maintainer: LantestOS — **nanjuong@outlook.com**
+
+CI builds and runs the boot / persistence / exception self-tests on every
+push (GitHub Actions). Want to help? Read [CONTRIBUTING.md](CONTRIBUTING.md) first.
 
 ## License
 
@@ -374,9 +377,12 @@ lantest/
 - 克隆：`git clone https://github.com/LantestOS/LantestOS-kernel.git`
 - 提交补丁前请先 `make test`（全新磁盘启动自检）保持绿灯。
 
-## 联系方式
+## 联系方式与贡献
 
 维护者：LantestOS — **nanjuong@outlook.com**
+
+每次推送都会在 GitHub Actions 上运行构建 + 启动/持久化/异常自检。
+欢迎贡献，请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)（英文）。
 
 ## 版本与变更
 
