@@ -54,12 +54,19 @@ jobs:
               echo "attempt $i: FAIL"
               # Public channel: run logs need admin rights, annotations don't.
               sz=$(wc -c < serial.log 2>/dev/null || echo 0)
-              up=$(grep -a '\[tick\] uptime' serial.log 2>/dev/null | tail -n1 | tr -d '\r\n')
               a=$(grep -ac '\[task\] A' serial.log 2>/dev/null || echo 0)
               sh=$(grep -ac 'Lantest shell' serial.log 2>/dev/null || echo 0)
               st=$(grep -ac 'stress: worker PASS' serial.log 2>/dev/null || echo 0)
-              qv=$(qemu-system-x86_64 --version | head -n1)
-              echo "::warning::boot attempt $i FAIL serial=${sz}B A=$a shell=$sh stress=$st last=[$up] [$qv]"
+              onl=$(grep -ac 'AP APIC ID .* online' serial.log 2>/dev/null || echo 0)
+              vec=$(grep -ac 'AP vector 0x30 handled' serial.log 2>/dev/null || echo 0)
+              aps=$(grep -ac '\[smp\] APs online=' serial.log 2>/dev/null || echo 0)
+              probe=$(grep -a 'IPI probe' serial.log 2>/dev/null | head -n1 | tr -d '\r\n')
+              enter=$(grep -ac 'entering Ring 3' serial.log 2>/dev/null || echo 0)
+              oneline=$(grep -a 'APs online=' serial.log | head -n1 | tr -d '\r\n')
+              qv=$(qemu-system-x86_64 --version | head -n1 | cut -c1-40)
+              echo "::warning::attempt $i FAIL sz=${sz}B A=$a shell=$sh stress=$st ring3=$enter [${qv}]"
+              echo "::warning::attempt $i apstate: online=${onl} vec30=${vec} smpdone=${aps} probe=[${probe}]"
+              echo "::warning::attempt $i smpsum=[${oneline}]"
               tail -c 300 serial.log 2>/dev/null | tr -d '\r' | tail -n 3 | while read -r ln; do
                 echo "::warning::tail: ${ln}"
               done
