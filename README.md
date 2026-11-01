@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-x86__64%20%2B%20QEMU-informational.svg)](#quick-start)
-[![Status](https://img.shields.io/badge/status-M4--47d%20(10/10%20fresh%20green)-brightgreen.svg)](#status)
+[![Status](https://img.shields.io/badge/status-v0.1.0%20gate%20met%20(50/50)-brightgreen.svg)](#status)
 
 **[English](#lantest-os)** | [简体中文](#兰特斯特操作系统lantest-os)
 
@@ -19,9 +19,9 @@ but the project:
 
 ## Status
 
-Current milestone: **M4-47d** (10/10 fresh-disk green; TLB livelock,
-serial byte-loss and heap forensics closed). First public snapshot
-**v0.0.38b**; formal **v0.1.0** pending the 50-run gate sample.
+Current milestone: **M4-47d** — release gate met: **50/50** fresh-disk boots,
+10/10 persistence, 5/5 exception, `-d int` 5/5, `-icount shift=7` 3/3, zero
+warnings (see `docs/release-gate.md`). Formal **v0.1.0** release in progress.
 
 Measured on QEMU 10.2.1 (`-cpu max -smp 4 -m 512M`), fresh 16 MiB disk:
 
@@ -160,7 +160,7 @@ Contributions are accepted under the same terms; see
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-x86__64%20%2B%20QEMU-informational.svg)](#快速开始)
-[![Status](https://img.shields.io/badge/status-M4--47d%20%2810%2F10%20fresh%20green%29-brightgreen.svg)](#路线图与状态)
+[![Status](https://img.shields.io/badge/status-v0.1.0%20gate%20met%20%2850%2F50%29-brightgreen.svg)](#路线图与状态)
 
 一个**从零独立实现**的 x86_64 宏内核（SMP，QEMU `-smp 4` 验证）。设计思想参考 Linux（宏内核、VFS、进程模型、系统调用、调度器），但：
 
@@ -168,7 +168,7 @@ Contributions are accepted under the same terms; see
 - 不基于 Linux 开发；
 - 不依赖 Linux ABI（系统调用号、对象布局、构建系统全部自定义）。
 
-当前状态：**M4-47d 完成**（TLB 活锁 + 串口丢字 + 堆护栏，fresh 10/10）（QEMU `-smp 4`）—— 补上 per-CPU GS 的 swapgs：KERNEL_GS_BASE=0，user_enter 前 swapgs，isr_common 按栈上 CS 在入口/出口 swapgs。BSP 用户任务、Lua、fork、shell 全部回归 PASS。AP 已有 per-CPU ready queue；BSP 把三个 apuser 分别挂到 CPU1/2/3，三个 AP 的 LVT timer 各自触发本地 `schedule()`，全部进入 Ring3 并完成 `sys_exit(42)`（cpu=1/2/3 status=42），BSP reaper 回收。新增每任务 `active_cpus`：AP 进入用户任务 inc、切走/exit dec，`task_reap` 在释放页表前等待归零。3 AP 并发 apuser 仍 PASS。补齐多核并发关键锁：kmalloc/kfree 堆锁、virtio-blk 请求锁、vfs_open(O_CREAT)/release/数据读写大锁（并修复 pcache↔vfs 的 AB-BA 死锁）；task_wakeup 统一唤醒（含 AP 任务重回本地队列）；deferred reap 队列让 active_cpus 未清零的 AP 任务稍后回收。3 个 stress worker 各 fork 3 子进程（写内存 + 建文件写）在 CPU1/2/3 并发 PASS，全新磁盘双启动 boot_count 1→2 LFS 挂载正常，零 PANIC。AP idle 暂为轮询 schedule（IPI 唤醒待修）。M4-47a：以 fresh-disk 复测发现 M4-46 绿灯有水分（复用脏盘），GDB 定位并拆除 page_cache 驱逐与 syscall 写路径的 pcache_lock↔vfs_lock ABBA 死锁（驱逐改为锁外 file_close），fresh-disk make test 从 ~1/3 提升到 **8/10**；残留晚期冻结 2/10 与 IPI 不投递（ACK TIMEOUT）为 M4-47b 目标。
+当前状态：**M4-47d 完成**（TLB 活锁 + 串口丢字 + 堆护栏；发布门槛 50/50 达成，v0.1.0 进行中）（QEMU `-smp 4`）—— 补上 per-CPU GS 的 swapgs：KERNEL_GS_BASE=0，user_enter 前 swapgs，isr_common 按栈上 CS 在入口/出口 swapgs。BSP 用户任务、Lua、fork、shell 全部回归 PASS。AP 已有 per-CPU ready queue；BSP 把三个 apuser 分别挂到 CPU1/2/3，三个 AP 的 LVT timer 各自触发本地 `schedule()`，全部进入 Ring3 并完成 `sys_exit(42)`（cpu=1/2/3 status=42），BSP reaper 回收。新增每任务 `active_cpus`：AP 进入用户任务 inc、切走/exit dec，`task_reap` 在释放页表前等待归零。3 AP 并发 apuser 仍 PASS。补齐多核并发关键锁：kmalloc/kfree 堆锁、virtio-blk 请求锁、vfs_open(O_CREAT)/release/数据读写大锁（并修复 pcache↔vfs 的 AB-BA 死锁）；task_wakeup 统一唤醒（含 AP 任务重回本地队列）；deferred reap 队列让 active_cpus 未清零的 AP 任务稍后回收。3 个 stress worker 各 fork 3 子进程（写内存 + 建文件写）在 CPU1/2/3 并发 PASS，全新磁盘双启动 boot_count 1→2 LFS 挂载正常，零 PANIC。AP idle 暂为轮询 schedule（IPI 唤醒待修）。M4-47a：以 fresh-disk 复测发现 M4-46 绿灯有水分（复用脏盘），GDB 定位并拆除 page_cache 驱逐与 syscall 写路径的 pcache_lock↔vfs_lock ABBA 死锁（驱逐改为锁外 file_close），fresh-disk make test 从 ~1/3 提升到 **8/10**；残留晚期冻结 2/10 与 IPI 不投递（ACK TIMEOUT）为 M4-47b 目标。
 
 ![M5-1 QEMU 启动](docs/m5a-qemu.png)
 

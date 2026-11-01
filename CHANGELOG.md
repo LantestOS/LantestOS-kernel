@@ -1,5 +1,61 @@
 # Changelog / 变更记录
 
+## v0.1.0 — 2026-11-01 · First gate-certified release / 首个通过门槛测量的发布
+
+### English
+
+The first release issued through the measured gate (`docs/release-gate.md`).
+M4-47c + M4-47d closed the entire known-defect backlog:
+
+- **Zombie/deferred-reap list corruption** (double free root cause): the
+  deferred reap list no longer shares `rq_next` with the per-CPU ready
+  queue; tasks are unlinked from their ready queue before destruction;
+  AP schedulers never pick ZOMBIE/DEAD (`task_reap` + `percpu_remove_task`).
+- **TLB shootdown livelock**: `tlb_shootdown_all` is fire-and-forget. GDB
+  caught all four CPUs spinning in the ack wait (ack=0, all locks idle):
+  a syscall-context sender (IF=0) can never service peers' ACK IPIs, and
+  the shared ack counter got re-zeroed by every reaper. Safety rests on
+  the `active_cpus==0` invariant plus hardware CR3-write flush.
+- **Serial byte-loss**: `uart_putc` used to give up after 1e6 spins and
+  silently dropped bytes; now unbounded THRE wait under `uart_lock`, with
+  `uart_puts` emitting a whole buffer atomically; console writes go
+  through it. (This artefact had made passing boots look like freezes.)
+- **Heap forensics stay in-tree**: scan guard + 64-slot caller ring,
+  raw-serial dump on trip. Zero trips over the whole gate sample.
+
+Gate results (fresh-disk, `cc5b69b` + this commit):
+
+| Tier | Result |
+| --- | --- |
+| `make test` × 50 | **50/50** — every run stress 3/3, ACK TIMEOUT 0, no PANIC |
+| `-d int` × 5 | 5/5 |
+| `-icount shift=7` × 3 | 3/3 (~290 virtual seconds each) |
+| `test-persist` × 10 | 10/10 |
+| `test-exception` × 5 | 5/5 |
+| build | zero warnings |
+
+Remaining known issues (non-blocking, recorded per H1): AP idle polls
+instead of `hlt`; QEMU-only validation; docs mostly Chinese (wiki pending).
+
+### 中文
+
+首个完全按测量门槛（`docs/release-gate.md`）发布的版本。M4-47c + M4-47d
+清空了全部已知缺陷：僵尸/延迟回收链表复用导致的 double free（`defer_next`
+独立链 + reap 前先从就绪队列摘除 + AP 调度跳过 ZOMBIE）；TLB shootdown
+活锁（GDB 四核同框取证，改为 fire-and-forget，依据 `active_cpus==0` 不变式
+与 CR3 写入硬件刷新）；串口静默丢字（无界 THRE 等待 + `uart_lock` +
+整缓冲原子写；该假象曾把通过的启动误报为冻结）；堆取证装备常驻（扫描哨
++ 调用环形日志，整个门槛样本零触发）。
+
+门槛实测：fresh-disk `make test` **50/50**（每轮 stress 3/3、ACK TIMEOUT 0、
+零 PANIC）；`-d int` 5/5；`-icount shift=7` 3/3（约 290 虚拟秒）；
+persist 10/10；exception 5/5；零警告。
+
+非阻塞残项（按 H1 记录）：AP idle 轮询未改 hlt；仅 QEMU 验证；docs 以中文
+为主（wiki 待初始化）。
+
+---
+
 ## v0.0.38b — 2026-10-31 · First public release / 首个公开版本
 
 ### English
@@ -61,11 +117,15 @@ table, object layouts and build system.
 
 **Known issues**
 
-- **AP bring-up timing race (M4-47c)**: in roughly 2–3 of 10 fresh-disk
-  boots the start handshake loses its window and boot stalls. Root cause
-  localized to fixed `ap_delay` waits in `start_one_ap`; the fix is an
-  AP parameter-ack / stage protocol with bounded waits. Reproduction is
-  deterministic under `qemu -d int` (8/8).
+- **AP bring-up timing race — RESOLVED and re-attributed (M4-47b/d)**:
+  the stall was the x2APIC ICR pending-drop (INIT/SIPI also travel through
+  ICR), fixed by the delivery-status drain in M4-47b; confirmed with
+  `re-INIT=0` across 10 runs, `-d int` 16/16 APs online, `ACK TIMEOUT=0`.
+  The remaining late freezes were a TLB-shootdown **livelock** (all CPUs
+  spinning with IF=0 can never service each other's ACK IPIs), fixed in
+  M4-47d by fire-and-forget shootdown; and a **serial byte-loss**
+  artefact that made passing boots look failed, fixed by unbounded
+  THRE wait under a uart lock plus atomic whole-buffer writes.
 - SMP is validated on QEMU only; no physical hardware testing yet.
 - AP idle currently polls the run queue instead of `hlt` (power, not
   correctness).
@@ -123,9 +183,14 @@ table, object layouts and build system.
 
 **已知问题**
 
-- **AP 拉起时序竞态（M4-47c）**：约 2–3/10 的全新磁盘启动会卡在手势
-  窗口；根因已定位到 `start_one_ap` 的固定 `ap_delay` 等待，修法为
-  AP 参数 ack/stage 握手 + 有界等待；`qemu -d int` 下 8/8 确定性复现。
+- **AP 拉起时序竞态——已结案并重新归因（M4-47b/d）**：真实根因是
+  x2APIC ICR pending 丢弃（INIT/SIPI 同样经 ICR），已由 M4-47b 的
+  delivery-status 排空修复；三重证据：`re-INIT=0`×10 轮、`-d int`
+  16/16 全部 AP 上线、`ACK TIMEOUT=0`。残余的晚期"冻结"实为 TLB
+  shootdown **活锁**（各核关中断自旋永远收不到彼此的 ACK IPI），
+  M4-47d 改为 fire-and-forget 修复；以及**串口丢字**造成的观测假象
+  （通过的启动被误报失败），已由无界 THRE 等待 + uart 锁 + 整缓冲
+  原子写修复。
 - SMP 仅在 QEMU 验证，未在物理硬件测试。
 - AP idle 目前轮询就绪队列而非 `hlt`（功耗问题，不影响正确性）。
 - `docs/`（设计文档与里程碑报告）目前为中文。

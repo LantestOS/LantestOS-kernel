@@ -42,17 +42,29 @@ is not evidence.
 - 不追求网络/图形/POSIX 兼容。
 - AP idle 的 `hlt` 省电优化排在 v0.1.0 之后（不阻塞发布）。
 
-## 5. Current gap（截至本文提交）
+## 5. Measured status — 2026-11-01 (M4-47d tree, `cc5b69b`)
 
-| 门槛 | 现状 | 差距 |
+| 门槛 | 实测 | 状态 |
 | --- | --- | --- |
-| G1 | ❌ 观察到 `kfree: double free` panic | 正在装堆取证 |
-| G2 | ❌ 3–4/10 静默冻结（疑与 G1 同源） | 待 G1 修复后复测 |
-| G3 | ❌ 有 | 同上 |
-| G4 | ✅ 每绿灯轮 stress=3、ACK TIMEOUT=0 | 保持 |
-| G5 | ✅ 1/1 | 需扩到 10 |
-| G6 | ✅ 1/1 | 需扩到 5 |
-| G7 | ✅ 零警告 | 保持 |
-| H3 | ✅ README 已对等 | 保持 |
+| G1 零 panic | fresh-disk `make test` **50/50**（`~/lantest-gate50/`，每轮 stress=3、ACK TIMEOUT=0、无 PANIC） | ✅ |
+| G2 无静默冻结 | 同 50 轮：每轮跑满全部 marker 直到 40s 预算内的自然终止；此前"tick 2500 冻结"经尸检证明为串口丢字观测假象（M4-47d） | ✅ |
+| G3 无内存踩踏 | 50 轮堆护栏（10 万步扫描哨 + 64 槽调用环形日志）**0 次触发** | ✅ |
+| G4 并发不变式 | 50/50 轮 `stress: worker PASS`=3；`ACK TIMEOUT`=0；`-d int` 5/5；`-icount shift=7` 3/3（≈290 虚拟秒） | ✅ |
+| G5 持久化 | `test-persist` **10/10** | ✅ |
+| G6 异常路径 | `test-exception` **5/5** | ✅ |
+| G7 构建 | `-Wall -Wextra` 零警告，`make clean && make` 可重复 | ✅ |
+| H1 已知 bug 归档 | M4-47a/b/c/d 文档 + 证据日志（`docs/evidence-kfree-double-free.log`）；残余项见下 | ⚠️ |
+| H2 锁序文档 | 分级已写入 design/M4 文档；运行期 owner 记录未实现（活锁结案后优先级降低） | ❌ 不阻塞 v0.1.0 |
+| H3 README 对等 | ✅ | ✅ |
+| H4 CI | ci.yml 上线（G1–G7 抽样 3/1/1 + 日志 artifact） | ✅ |
+| H5 CHANGELOG 对称 | ✅（含本轮归因修正） | ✅ |
+
+### 残余已知问题（v0.1.0 记录在案，不阻塞）
+
+1. AP idle 轮询而非 `hlt`（功耗项）；
+2. 仅 QEMU 验证；
+3. `docs/` 主体为中文（wiki 待 GitHub 初始化后补英文索引）。
 
 > 门槛提高的意义不是让发布变慢，而是让每个 ✅ 都可以被别人复现。
+> 复现配方：`rm -f disk.img && truncate -s 16M disk.img && make test`，连跑 N 次，
+> 或 `bash gate50.sh`（本仓库 scratchpad 有脚本，证据目录 `~/lantest-gate50/`）。
