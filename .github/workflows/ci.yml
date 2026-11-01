@@ -52,6 +52,17 @@ jobs:
               pass=$((pass+1))
             else
               echo "attempt $i: FAIL"
+              # Public channel: run logs need admin rights, annotations don't.
+              sz=$(wc -c < serial.log 2>/dev/null || echo 0)
+              up=$(grep -a '\[tick\] uptime' serial.log 2>/dev/null | tail -n1 | tr -d '\r\n')
+              a=$(grep -ac '\[task\] A' serial.log 2>/dev/null || echo 0)
+              sh=$(grep -ac 'Lantest shell' serial.log 2>/dev/null || echo 0)
+              st=$(grep -ac 'stress: worker PASS' serial.log 2>/dev/null || echo 0)
+              qv=$(qemu-system-x86_64 --version | head -n1)
+              echo "::warning::boot attempt $i FAIL serial=${sz}B A=$a shell=$sh stress=$st last=[$up] [$qv]"
+              tail -c 300 serial.log 2>/dev/null | tr -d '\r' | tail -n 3 | while read -r ln; do
+                echo "::warning::tail: ${ln}"
+              done
             fi
           done
           echo "boot-test pass rate: $pass/3" | tee -a "$GITHUB_STEP_SUMMARY"
