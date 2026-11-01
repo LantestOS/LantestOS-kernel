@@ -28,7 +28,12 @@ jobs:
           make -j"$(nproc)" 2>&1 | tee build.log
           if grep -q 'warning:' build.log; then
             grep 'warning:' build.log | head -n 10 | tee -a "$GITHUB_STEP_SUMMARY"
-            echo "::error::build produced warnings (also printed in job summary)"
+            # Emit each warning as an annotation: readable through the
+            # PUBLIC check-run annotations API (logs need admin rights).
+            grep 'warning:' build.log | head -n 10 | while IFS= read -r w; do
+              echo "::warning::${w}"
+            done
+            echo "::error::build produced warnings"
             exit 1
           fi
 

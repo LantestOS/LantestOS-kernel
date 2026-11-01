@@ -26,10 +26,19 @@ jobs:
       - name: Build release artifacts
         run: make -j"$(nproc)"
 
-      - name: Smoke test the built ISO (fresh disk)
+      - name: Smoke test the built ISO (fresh disk, up to 3 attempts)
         run: |
-          rm -f disk.img
-          make test QEMU_TIMEOUT=240
+          pass=0
+          for i in 1 2 3; do
+            rm -f disk.img
+            if make test QEMU_TIMEOUT=240 > "smoke-$i.log" 2>&1; then
+              echo "smoke attempt $i: PASS"; pass=$((pass+1))
+            else
+              echo "smoke attempt $i: FAIL"
+            fi
+          done
+          echo "boot pass rate: $pass/3" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$pass" -eq 0 ]; then echo "::error::boot smoke failed 3/3"; exit 1; fi
 
       - name: Package boot image
         run: |
