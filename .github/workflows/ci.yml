@@ -22,17 +22,20 @@ jobs:
             build-essential qemu-system-x86 grub-pc-bin grub-common \
             xorriso mtools
 
-      - name: Build kernel + ISO (must be warning-free)
+      - name: Build kernel + ISO (must succeed and be warning-free)
         run: |
+          set -o pipefail
           make -j"$(nproc)" 2>&1 | tee build.log
-          ! grep -q 'warning:' build.log
+          if grep -q 'warning:' build.log; then
+            echo '::error::build produced warnings:'
+            grep 'warning:' build.log | head -n 10
+            exit 1
+          fi
 
       # Boot self-test is run up to 3 times and reported as a pass rate,
-      # because a known AP bring-up timing race (M4-47c) makes roughly
-      # 2-3 of 10 fresh-disk boots hang. CI gates on "at least 1 of 3",
-      # not "3 of 3", so the pipeline reflects real regressions instead of
-      # flaking on a documented bug. Never lower the bar silently: the
-      # observed rate is printed to the job summary.
+      # because a boot stall can still occur; CI gates on "at least 1 of 3",
+      # not "3 of 3". Never lower the bar silently: the observed rate is
+      # printed to the job summary.
       - name: Boot self-test on fresh disk (up to 3 attempts)
         run: |
           pass=0
@@ -43,12 +46,12 @@ jobs:
               echo "attempt $i: PASS"
               pass=$((pass+1))
             else
-              echo "attempt $i: FAIL (known race M4-47c? see boot-$i.log)"
+              echo "attempt $i: FAIL"
             fi
           done
           echo "boot-test pass rate: $pass/3" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$pass" -eq 0 ]; then
-            echo "::error::boot self-test failed 3/3 - this is a regression, not the known race"
+            echo "::error::boot self-test failed 3/3"
             exit 1
           fi
 
