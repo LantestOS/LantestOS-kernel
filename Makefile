@@ -42,8 +42,12 @@ CFLAGS   := -m64 -std=gnu11 -ffreestanding -fno-pie -fno-pic -fno-stack-protecto
             -Iinclude -Wall -Wextra -O2 -g
 CFLAGS   += $(EXTRA_CFLAGS)
 ASFLAGS  := -m64 -g
+# -z noexecstack: user_blobs.o (binary-embedded ELFs) carries no
+# .note.GNU-stack, and runner binutils 2.42 then warns "implies
+# executable stack" and marks PT_GNU_STACK RWX. Declaring non-exec
+# stack is true for this kernel and silences both.
 LDFLAGS  := -m elf_x86_64 -T linker.ld --build-id=none \
-            -z max-page-size=0x1000 -Map=kernel.map
+            -z max-page-size=0x1000 -z noexecstack -Map=kernel.map
 
 USER_CFLAGS := -m64 -std=gnu11 -ffreestanding -fno-pie -fno-pic \
                -mcmodel=large \
