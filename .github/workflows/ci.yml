@@ -27,8 +27,8 @@ jobs:
           set -o pipefail
           make -j"$(nproc)" 2>&1 | tee build.log
           if grep -q 'warning:' build.log; then
-            echo '::error::build produced warnings:'
-            grep 'warning:' build.log | head -n 10
+            grep 'warning:' build.log | head -n 10 | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "::error::build produced warnings (also printed in job summary)"
             exit 1
           fi
 
